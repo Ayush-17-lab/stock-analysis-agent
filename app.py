@@ -17,28 +17,30 @@ from datetime import datetime, timedelta
 import streamlit as st
 from dotenv import load_dotenv
 import hashlib
-import speech_recognition as sr
-import pyaudio
 import io
 import wave
 import tempfile
 import threading
 import time
 
+try:
+    import speech_recognition as sr
+    import pyaudio
+    VOICE_ENABLED = True
+except ImportError:
+    VOICE_ENABLED = False
+
 # Load environment variables
 from dotenv import load_dotenv
 import os
 
-loaded: bool = load_dotenv()
+load_dotenv()
 
-print("Current Directory:", os.getcwd())
-print("Dotenv Loaded:", loaded)
-print("GROQ_API_KEY:", os.getenv("GROQ_API_KEY"))
-
-if not os.getenv("GROQ_API_KEY"):
+api_key = os.getenv("GROQ_API_KEY")
+if not api_key:
     raise ValueError("❌ GROQ_API_KEY not found in .env file. Please add it.")
 
-os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
+os.environ["GROQ_API_KEY"] = api_key
 
 # --- Enhanced Schema for Parsed Query ---
 class ComparisonQuery(BaseModel):
@@ -1347,101 +1349,112 @@ def display_backtest_results(state: AnalysisState):
     st.plotly_chart(fig_pie, use_container_width=True)
 
 # --- Voice Input Functions ---
+
 def setup_speech_recognizer():
-    """Setup speech recognizer with multiple engines"""
+    """Setup speech recognizer"""
+    if not VOICE_ENABLED:
+        return None
+
     recognizer = sr.Recognizer()
-    
-    # Configure microphone settings
+
     recognizer.energy_threshold = 300
     recognizer.dynamic_energy_threshold = True
     recognizer.pause_threshold = 0.8
     recognizer.phrase_threshold = 0.3
     recognizer.non_speaking_duration = 0.8
-    
+
     return recognizer
+
 
 def record_audio(duration=5):
     """Record audio from microphone"""
+    if not VOICE_ENABLED:
+        st.warning("🎤 Voice input is not available on Streamlit Cloud.")
+        return None
+
     recognizer = setup_speech_recognizer()
-    
+
     try:
         with sr.Microphone() as source:
             st.info("🎤 Listening... Speak now!")
-            # Adjust for ambient noise
+
             recognizer.adjust_for_ambient_noise(source, duration=1)
-            
-            # Record audio
-            audio = recognizer.listen(source, timeout=duration, phrase_time_limit=duration)
+
+            audio = recognizer.listen(
+                source,
+                timeout=duration,
+                phrase_time_limit=duration
+            )
+
             st.success("✅ Audio recorded!")
             return audio
+
     except sr.WaitTimeoutError:
         st.warning("⏰ No speech detected. Please try again.")
         return None
+
     except Exception as e:
         st.error(f"❌ Microphone error: {str(e)}")
         return None
 
+
 def speech_to_text(audio):
-    """Convert speech to text using multiple engines"""
+    """Convert speech to text"""
+    if not VOICE_ENABLED:
+        return None
+
     recognizer = setup_speech_recognizer()
-    
-    # Try multiple recognition engines for better accuracy
+
     engines = [
-        ("Google", lambda: recognizer.recognize_google(audio)),
-        ("Sphinx", lambda: recognizer.recognize_sphinx(audio)),
+        ("Google", lambda: recognizer.recognize_google(audio))
     ]
-    
+
     for engine_name, recognize_func in engines:
         try:
             text = recognize_func()
             st.success(f"🎯 Recognized using {engine_name}: {text}")
             return text
+
         except sr.UnknownValueError:
-            st.warning(f"⚠️ {engine_name} could not understand audio")
             continue
-        except sr.RequestError as e:
-            st.warning(f"⚠️ {engine_name} error: {str(e)}")
+
+        except sr.RequestError:
             continue
-    
-    # Fallback: Show manual input option
-    st.error("❌ Could not recognize speech with any engine")
-    st.info("💡 You can type your query manually in the chat input below")
+
+    st.error("❌ Could not recognize speech")
     return None
 
+
 def quick_voice_input():
-    """Quick voice input that returns text directly"""
+    """Quick voice input"""
+    if not VOICE_ENABLED:
+        return None
+
     try:
         recognizer = setup_speech_recognizer()
-        
+
         with sr.Microphone() as source:
-            # Quick noise adjustment
             recognizer.adjust_for_ambient_noise(source, duration=0.5)
-            
-            # Record audio
-            audio = recognizer.listen(source, timeout=3, phrase_time_limit=8)
-            
-            # Try to recognize
+
+            audio = recognizer.listen(
+                source,
+                timeout=3,
+                phrase_time_limit=8
+            )
+
             try:
-                text = recognizer.recognize_google(audio)
-                return text
-            except sr.UnknownValueError:
+                return recognizer.recognize_google(audio)
+
+            except Exception:
                 return None
-            except sr.RequestError:
-                return None
-                
-    except Exception as e:
+
+    except Exception:
         return None
+
 
 def voice_button_available():
     """Check if voice input is available"""
-    try:
-        import speech_recognition as sr
-        recognizer = sr.Recognizer()
-        with sr.Microphone() as source:
-            pass
-        return True
-    except:
-        return False
+    return VOICE_ENABLED
 
 # --- LLM Response Generation ---
 def generate_llm_response(query: str, state: AnalysisState, context: List[Dict]) -> str:
