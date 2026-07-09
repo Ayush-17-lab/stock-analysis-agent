@@ -22,6 +22,23 @@ import wave
 import tempfile
 import threading
 import time
+import sys
+import subprocess
+
+print("=" * 60)
+print("Python:", sys.version)
+print("=" * 60)
+
+result = subprocess.run(
+    [sys.executable, "-m", "pip", "show", "langgraph"],
+    capture_output=True,
+    text=True
+)
+
+print("----- pip show langgraph -----")
+print(result.stdout)
+print(result.stderr)
+print("==============================")
 
 try:
     import speech_recognition as sr
